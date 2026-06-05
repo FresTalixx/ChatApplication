@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="../Client/NetworkHelper/NetworkHelper.csproj" />
+  <Project Path="Client/Client.csproj" Id="17eedf41-63b1-49f7-9cec-d64e22ad9612" />
+  <Project Path="Server/Server.csproj" />
+</Solution>
