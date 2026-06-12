@@ -33,6 +33,8 @@ tcpListener.Start();
 
 var userFilePath = "users.json";
 var chatMessagesFilePath = "chat_messages.json";
+var multicastAddress = "239.0.0.1";
+var multicastPort = 5003;
 
 while (true)
 {
@@ -71,7 +73,7 @@ async Task HandleClientAsync(TcpClient client)
             break;
         case "send_message":
             var message = await NetworkHelper.ReceiveObjectAsync<Message>(stream);
-            await ChatEventHandlerServer.HandleSendMessage(stream, message, chatMessagesFilePath);
+            await ChatEventHandlerServer.HandleSendMessage(stream, message, chatMessagesFilePath, multicastAddress, multicastPort);
             break;
         case "help":
         Console.WriteLine("Available commands:");

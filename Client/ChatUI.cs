@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -10,10 +12,15 @@ public class ChatUI
 {
     private string _address;
     private int _port;
+    private string _multicastAddress = "239.0.0.1";
+    private int _multicastPort = 5003;
     private string _currentUser;
     private string _targetUser = string.Empty;
     private List<string> _users = new();
     private List<Message> _chatHistory = new();
+    //private UdpClient _udpClient = new(); // any available port
+
+    private readonly TaskCompletionSource _udpReady = new();
 
     private int _selectedUserIndex = 0;
     private string _inputBuffer = "";
@@ -37,19 +44,19 @@ public class ChatUI
         _address = address;
         _port = port;
         _currentUser = currentUser;
+        //_udpClient = new UdpClient(0);
 
         _consoleWidth = Console.WindowWidth;
         _consoleHeight = Console.WindowHeight;
         _leftPaneWidth = _consoleWidth / 3;
         _rightPaneWidth = _consoleWidth - _leftPaneWidth;
+        _cts = new CancellationTokenSource();
     }
 
     public async Task RunAsync()
     {
         Console.Clear();
         Console.CursorVisible = false;
-
-        _cts = new CancellationTokenSource();
 
         // 1. Fetch Users
         _users = await ChatEventHandlerClient.GetUsersAsync(_address, _port, _currentUser) ?? new List<string>();
@@ -63,7 +70,8 @@ public class ChatUI
 
         DrawUI();
 
-        _ = PollMessagesAsync(_cts.Token);
+        _ = StartMulticastListenerAsync(_cts.Token);
+        //await _udpReady.Task; // Wait until UDP listener is ready
 
         while (!_cts.IsCancellationRequested)
         {
@@ -87,6 +95,8 @@ public class ChatUI
             {
                 _cts.Cancel();
                 Console.Clear();
+                //_udpClient.DropMulticastGroup(IPAddress.Parse(_multicastAddress));
+                //_udpClient.Dispose();
                 return;
             }
 
@@ -189,43 +199,45 @@ public class ChatUI
         }
     }
 
-    private async Task PollMessagesAsync(CancellationToken token)
-    {
-        while (!token.IsCancellationRequested)
+    //Доробити проєкт з TCP чатом
+    //Замінити поллінг(кожні 3 секунди) на multicast повідомлення
+    //про нові повідомлення в чаті
+
+    //Щоб не усі клієни постійно опитували сервер, а отримували повідомлення про нові повідомлення в чаті через multicast,
+    //і тоді підключалися до сервера для отримання нових повідомлень.
+
+    //в повідомленні multicast передавати інформацію про те,
+    //що є нове повідомлення в чаті, та від кого та кому
+    //і лише ті клієни яких це стосується отримують повідомлення через TCP, а не всі клієнти
+    //підключаються до сервера для отримання нових повідомлень.
+
+    private async Task StartMulticastListenerAsync(CancellationToken token)
+    {     
+        var udpClient = new UdpClient(_multicastPort);
+        udpClient.JoinMulticastGroup(IPAddress.Parse(_multicastAddress));
+
+        try
         {
-            try
+            while (!token.IsCancellationRequested)
             {
-                // We shouldn't use ChatEventHandlerClient.PollMessagesAsync here because it writes to Console directly
-                // Instead, let's poll manually.
-                using var client = new TcpClient();
-                await client.ConnectAsync(System.Net.IPAddress.Parse(_address), _port);
-                using var stream = client.GetStream();
-
-                await NetworkHelper.SendStringAsync("get_new_messages", stream);
-                await NetworkHelper.SendStringAsync(_currentUser, stream);
-
-                var msgs = await NetworkHelper.ReceiveObjectAsync<List<Message>>(stream);
-                if (msgs != null && msgs.Count > 0)
+                var result = await udpClient.ReceiveAsync();
+                var msg = JsonSerializer.Deserialize<MessageNotification>(result.Buffer);
+                if (msg != null && (msg.Recipient == _currentUser)) // This means there's a new message for us
                 {
-                    bool shouldRedraw = false;
+                    await LoadChatHistoryAsync();
                     lock (_syncRoot)
                     {
-                        foreach (var msg in msgs)
-                        {
-                            if (msg.Sender == _targetUser)
-                            {
-                                _chatHistory.Add(msg);
-                                shouldRedraw = true;
-                            }
-                        }
-                        if (shouldRedraw) DrawUI();
+                        DrawUI();
                     }
                 }
             }
-            catch { /* Ignore network errors in polling loop */ }
-
-            await Task.Delay(3000, token);
         }
+        catch
+        { 
+            Console.WriteLine("Multicast listener stopped.");
+        }
+        
+
     }
 
     private void DrawUI()

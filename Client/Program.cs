@@ -22,6 +22,10 @@ using System.Net.Sockets;
 
 Console.WriteLine("Client");
 
+var multicastAddress = "239.0.0.1";
+var multicastPort = 5003;
+var udpClient = new UdpClient();
+
 var serverAddress = "192.168.1.2";
 var serverPort = 5000;
 
