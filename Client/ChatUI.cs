@@ -18,9 +18,10 @@ public class ChatUI
     private string _targetUser = string.Empty;
     private List<string> _users = new();
     private List<Message> _chatHistory = new();
-    private UdpClient _udpClient = new(); // any available port
+    //private UdpClient _udpClient = new(); // any available port
 
-    private readonly TaskCompletionSource _udpReady = new();
+
+    private readonly TaskCompletionSource<bool> _udpReady = new();
 
     private int _selectedUserIndex = 0;
     private string _inputBuffer = "";
@@ -44,10 +45,11 @@ public class ChatUI
         _address = address;
         _port = port;
         _currentUser = currentUser;
-        _udpClient = new UdpClient(AddressFamily.InterNetwork);
-        _udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, _multicastPort));
-        _udpClient.JoinMulticastGroup(IPAddress.Parse(_multicastAddress));
+        //_udpClient = new UdpClient(AddressFamily.InterNetwork);
+        //_udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, _multicastPort));
+        //_udpClient.JoinMulticastGroup(IPAddress.Parse(_multicastAddress));
         //_udpClient = new UdpClient(0);
+        _udpReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         _consoleWidth = Console.WindowWidth;
         _consoleHeight = Console.WindowHeight;
@@ -73,8 +75,10 @@ public class ChatUI
 
         DrawUI();
 
-        _ = StartMulticastListenerAsync(_cts.Token);
-        //await _udpReady.Task; // Wait until UDP listener is ready
+        // we need to ensure that multicast listener has started
+        _ = StartMulticastListenerAsync(_cts.Token, _udpReady);
+         // Wait until UDP listener is ready
+        await _udpReady.Task;
 
         while (!_cts.IsCancellationRequested)
         {
@@ -98,8 +102,8 @@ public class ChatUI
             {
                 _cts.Cancel();
                 Console.Clear();
-                _udpClient.DropMulticastGroup(IPAddress.Parse(_multicastAddress));
-                _udpClient.Dispose();
+                //_udpClient.DropMulticastGroup(IPAddress.Parse(_multicastAddress));
+                //_udpClient.Dispose();
                 return;
             }
 
@@ -214,32 +218,67 @@ public class ChatUI
     //і лише ті клієни яких це стосується отримують повідомлення через TCP, а не всі клієнти
     //підключаються до сервера для отримання нових повідомлень.
 
-    private async Task StartMulticastListenerAsync(CancellationToken token)
-    {     
-        //var udpClient = new UdpClient(_multicastPort);
-        _udpClient.JoinMulticastGroup(IPAddress.Parse(_multicastAddress));
-
+    private async Task StartMulticastListenerAsync(CancellationToken token, TaskCompletionSource<bool> udpReady)
+    {
+        UdpClient? udpClient = null;
         try
         {
-            while (!token.IsCancellationRequested)
+            udpClient = new UdpClient();
+            udpClient.ExclusiveAddressUse = false;
+            udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, _multicastPort));
+            udpClient.JoinMulticastGroup(IPAddress.Parse(_multicastAddress));
+
+            udpReady.SetResult(true);
+        }
+        catch (Exception ex)
+        {
+            udpReady.TrySetException(ex);
+            udpClient?.Dispose();
+        }
+        
+        if (udpClient == null) return;
+        
+        using (udpClient)
+        {
+            try
             {
-                var result = await _udpClient.ReceiveAsync();
-                var msg = JsonSerializer.Deserialize<MessageNotification>(result.Buffer);
-                if (msg != null && (msg.Recipient == _currentUser)) // This means there's a new message for us
+                while (!token.IsCancellationRequested)
                 {
-                  
-                    await LoadChatHistoryAsync();
-                    lock (_syncRoot)
+                    var result = await udpClient.ReceiveAsync(token);
+                    var msg = JsonSerializer.Deserialize<MessageNotification>(result.Buffer);
+
+                    if (msg == null) continue;
+
+                    if (msg != null && (msg.Recipient == _currentUser)) // This means there's a new message for us
                     {
-                        DrawUI();
+                        _ = Task.Run(async () =>
+                        {
+                            await LoadChatHistoryAsync();
+                            lock (_syncRoot)
+                            {
+                                Console.SetCursorPosition(0, 1);
+                                Console.WriteLine($"New message from {msg.Sender} to {msg.Recipient}");
+                                DrawUI();
+                            }
+                        }, token);
+                        
                     }
                 }
             }
+            catch (OperationCanceledException)
+            {
+                // Normal shutdown via cancellation token
+            }
+            catch (Exception ex)
+            {
+                lock (_syncRoot)
+                {
+                    Console.WriteLine($"Multicast listener error: {ex.Message}");
+                }
+            }
         }
-        catch
-        { 
-            Console.WriteLine("Multicast listener stopped.");
-        }
+        
         
 
     }

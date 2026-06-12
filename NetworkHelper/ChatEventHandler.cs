@@ -96,7 +96,6 @@ public class ChatEventHandlerServer
             {
                 Sender = message.Sender,
                 Recipient = message.Recipient,
-                SendingDate = message.SendingDate
             };
 
             var jsonNotification = JsonSerializer.Serialize(notification);

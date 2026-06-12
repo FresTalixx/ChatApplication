@@ -263,7 +263,6 @@ public class MessageNotification
 {
     public string Sender { get; set; } = string.Empty;
     public string Recipient { get; set; } = string.Empty;
-    public DateTime SendingDate { get; set; }
 }
 
 public class Message
