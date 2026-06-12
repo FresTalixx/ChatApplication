@@ -33,6 +33,7 @@ while (true)
 {
     var authUI = new AuthUI(serverAddress, serverPort);
     var currentUser = await authUI.RunAsync();
+    
 
     if (currentUser == null)
     {

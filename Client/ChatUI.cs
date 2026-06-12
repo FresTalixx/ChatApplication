@@ -18,7 +18,7 @@ public class ChatUI
     private string _targetUser = string.Empty;
     private List<string> _users = new();
     private List<Message> _chatHistory = new();
-    //private UdpClient _udpClient = new(); // any available port
+    private UdpClient _udpClient = new(); // any available port
 
     private readonly TaskCompletionSource _udpReady = new();
 
@@ -44,6 +44,9 @@ public class ChatUI
         _address = address;
         _port = port;
         _currentUser = currentUser;
+        _udpClient = new UdpClient(AddressFamily.InterNetwork);
+        _udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, _multicastPort));
+        _udpClient.JoinMulticastGroup(IPAddress.Parse(_multicastAddress));
         //_udpClient = new UdpClient(0);
 
         _consoleWidth = Console.WindowWidth;
@@ -95,8 +98,8 @@ public class ChatUI
             {
                 _cts.Cancel();
                 Console.Clear();
-                //_udpClient.DropMulticastGroup(IPAddress.Parse(_multicastAddress));
-                //_udpClient.Dispose();
+                _udpClient.DropMulticastGroup(IPAddress.Parse(_multicastAddress));
+                _udpClient.Dispose();
                 return;
             }
 
@@ -213,17 +216,18 @@ public class ChatUI
 
     private async Task StartMulticastListenerAsync(CancellationToken token)
     {     
-        var udpClient = new UdpClient(_multicastPort);
-        udpClient.JoinMulticastGroup(IPAddress.Parse(_multicastAddress));
+        //var udpClient = new UdpClient(_multicastPort);
+        _udpClient.JoinMulticastGroup(IPAddress.Parse(_multicastAddress));
 
         try
         {
             while (!token.IsCancellationRequested)
             {
-                var result = await udpClient.ReceiveAsync();
+                var result = await _udpClient.ReceiveAsync();
                 var msg = JsonSerializer.Deserialize<MessageNotification>(result.Buffer);
                 if (msg != null && (msg.Recipient == _currentUser)) // This means there's a new message for us
                 {
+                  
                     await LoadChatHistoryAsync();
                     lock (_syncRoot)
                     {
@@ -289,6 +293,9 @@ public class ChatUI
             Console.Write("=== USERS (Focused) ===");
         else
             Console.Write("=== USERS ===========");
+
+        Console.SetCursorPosition(0, 1);
+        Console.WriteLine($"Login: {_currentUser}");
 
         int startY = 2;
         for (int i = 0; i < _users.Count; i++)
