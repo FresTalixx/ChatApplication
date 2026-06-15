@@ -14,7 +14,7 @@ public class AuthUI
         _port = port;
     }
 
-    public async Task<User> RunAsync()
+    public async Task<User?> RunAsync()
     {
         int selectedOption = 0;
         string[] options = { "Log In", "Register", "Exit" };

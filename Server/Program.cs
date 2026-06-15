@@ -35,16 +35,16 @@ var userFilePath = "users.json";
 var chatMessagesFilePath = "chat_messages.json";
 var multicastAddress = "239.0.0.1";
 var multicastPort = 5003;
+var broadcastPort = 5111;
+var serverAddress = "192.168.1.2";
+var serverPort = 5000;
 
+_ = Task.Run(() => ChatEventHandlerServer.HandleGetServerAddressAsync(serverAddress, serverPort, broadcastPort));
 while (true)
 {
     var client = await tcpListener.AcceptTcpClientAsync();
 
     _ = Task.Run(() => HandleClientAsync(client));
-
-
-    
-    
 }
 
 async Task HandleClientAsync(TcpClient client)

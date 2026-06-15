@@ -164,12 +164,44 @@ public class ChatEventHandlerServer
             newMessages,
             stream);
     }
+
+    public static async Task HandleGetServerAddressAsync(string serverAddress, int serverPort, int broadcastPort)
+    {        
+        using var udpClient = new UdpClient(broadcastPort);
+        udpClient.EnableBroadcast = true;
+
+        while (true)
+        {
+            var receivedCommandBytes = await udpClient.ReceiveAsync();
+            var command = Encoding.UTF8.GetString(receivedCommandBytes.Buffer);
+            if (command == "get_server_info")
+            {
+                var message = $"{serverAddress}:{serverPort}";
+                var bytes = Encoding.UTF8.GetBytes(message);
+                Console.WriteLine("Sending server address via UDP broadcast...");
+                await udpClient.SendAsync(bytes, bytes.Length, receivedCommandBytes.RemoteEndPoint);
+            }
+            else
+            {
+                Console.WriteLine("Received unknown UDP command. Ignoring.");
+            }
+        }
+        
+        
+    }
+
+
 }
 
 
 
+public class ServerConfig
+{
+    public string Address { get; set; } = string.Empty;
+    public int Port { get; set; } = 0;
+}
 
-public class ChatEventHandlerClient
+    public class ChatEventHandlerClient
 {
    public static async Task<List<string>?> GetUsersAsync(string address, int port, string login)
     {
@@ -228,17 +260,53 @@ public class ChatEventHandlerClient
         await NetworkHelper.SendObjectAsync(message, stream);
     }
 
-        //Доробити проєкт з TCP чатом
-        //Замінити поллінг(кожні 3 секунди) на multicast повідомлення
-        //про нові повідомлення в чаті
+    public static async Task<ServerConfig?> GetServerInfoAsync(int broadcastPort)
+    {
+        var timeout = TimeSpan.FromSeconds(5);
 
-        //Щоб не усі клієни постійно опитували сервер, а отримували повідомлення про нові повідомлення в чаті через multicast,
-        //і тоді підключалися до сервера для отримання нових повідомлень.
+        using var udpClient = new UdpClient();
 
-        //в повідомленні multicast передавати інформацію про те,
-        //що є нове повідомлення в чаті, та від кого та кому
-        //і лише ті клієни яких це стосується отримують повідомлення через TCP, а не всі клієнти
-        //підключаються до сервера для отримання нових повідомлень.
+        udpClient.EnableBroadcast = true;
+
+        var command = "get_server_info";
+        await udpClient.SendAsync(Encoding.UTF8.GetBytes(command), Encoding.UTF8.GetByteCount(command), new IPEndPoint(IPAddress.Broadcast, broadcastPort));
+
+        Console.WriteLine("Waiting for server address broadcast...");
+        var resultTask = udpClient.ReceiveAsync();
+
+
+        var timeoutTask = Task.Delay(timeout);
+
+        var completedTask = await Task.WhenAny(resultTask, timeoutTask);
+
+        if (completedTask == timeoutTask)
+        {
+            return null;
+        }
+
+        Console.WriteLine("Received server address broadcast.");
+        var result = await resultTask;
+        var message = Encoding.UTF8.GetString(result.Buffer);
+        var parts = message.Split(':');
+        udpClient.Close();
+        return new ServerConfig
+        {
+            Address = parts[0],
+            Port = int.Parse(parts[1])
+        };
+    }
+
+    //Доробити проєкт з TCP чатом
+    //Замінити поллінг(кожні 3 секунди) на multicast повідомлення
+    //про нові повідомлення в чаті
+
+    //Щоб не усі клієни постійно опитували сервер, а отримували повідомлення про нові повідомлення в чаті через multicast,
+    //і тоді підключалися до сервера для отримання нових повідомлень.
+
+    //в повідомленні multicast передавати інформацію про те,
+    //що є нове повідомлення в чаті, та від кого та кому
+    //і лише ті клієни яких це стосується отримують повідомлення через TCP, а не всі клієнти
+    //підключаються до сервера для отримання нових повідомлень.
 
 
 
@@ -263,7 +331,7 @@ public class ChatEventHandlerClient
     //    {
     //        //Console.WriteLine(ex.ToString());
     //    }
-       
+
 
     //}
 

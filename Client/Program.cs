@@ -22,16 +22,31 @@ using System.Net.Sockets;
 
 Console.WriteLine("Client");
 
-var multicastAddress = "239.0.0.1";
-var multicastPort = 5003;
 var udpClient = new UdpClient();
 
-var serverAddress = "192.168.1.2";
-var serverPort = 5000;
+//var serverAddress = "192.168.1.2";
+//var serverPort = 5000;
+var broadcastAddress = IPAddress.Broadcast;
+var broadcastPort = 5111;
+
+Console.WriteLine("Searching for server...");
+
+ServerConfig? serverConfig;
+
+serverConfig = await ChatEventHandlerClient.GetServerInfoAsync(broadcastPort);
+if (serverConfig == null)
+{
+    Console.WriteLine("Could not find server on local network. Press any key to exit.");
+    Console.ReadKey();
+    return;
+}
+Console.WriteLine($"Connected to server {serverConfig.Address}:{serverConfig.Port}");
+
 
 while (true)
 {
-    var authUI = new AuthUI(serverAddress, serverPort);
+    
+    var authUI = new AuthUI(serverConfig.Address, serverConfig.Port);
     var currentUser = await authUI.RunAsync();
     
 
@@ -41,103 +56,10 @@ while (true)
         break;
     }
 
-    // Transition immediately to chat mode
-    await HandleChatAsync(serverAddress, serverPort, currentUser);
+    await HandleChatAsync(serverConfig.Address, serverConfig.Port, currentUser);
 }
 
-// Ensure the application exits gracefully
 return;
-
-async Task<User> HandleServerLoginOrRegisterAsync(string address, int port)
-{
-    var command = string.Empty;
-
-    while (true)
-    {
-        using var client = new TcpClient();
-        client.Connect(IPAddress.Parse(address), port);
-        using var stream = client.GetStream();
-
-        Console.WriteLine("Enter command ('help' for all commands):");
-        command = Console.ReadLine()?.Trim().ToLower() ?? string.Empty;
-
-        // Connect to server per request
-        if (command == "register")
-        {
-            Console.WriteLine("Registering a new account...");
-            Console.WriteLine("Enter username:");
-            var username = Console.ReadLine()?.Trim() ?? string.Empty;
-            Console.WriteLine("Enter password:");
-            var password = Console.ReadLine()?.Trim() ?? string.Empty;
-
-            var newUser = new User
-            {
-                Login = username,
-                Password = password
-            };
-            await NetworkHelper.SendStringAsync("register", stream);
-            await NetworkHelper.SendStringAsync(username, stream);
-            await NetworkHelper.SendObjectAsync(newUser, stream);
-            
-
-            var registerResult = await NetworkHelper.ReceiveObjectAsync<RegisterResult>(stream);
-            if (registerResult != null && registerResult.IsRegistered)
-            {
-                Console.WriteLine("Registration successful! You can now log in.");
-                continue;
-            }
-            else
-            {
-                Console.WriteLine($"Registration failed: {registerResult?.Message}");
-            }
-        }
-        else if (command == "login")
-        { 
-            Console.WriteLine("Logging in...");
-            Console.WriteLine("Enter username:");
-            var username = Console.ReadLine()?.Trim() ?? string.Empty;
-            Console.WriteLine("Enter password:");
-            var password = Console.ReadLine()?.Trim() ?? string.Empty;
-
-            var user = new User
-            {
-                Login = username,
-                Password = password
-            };
-            await NetworkHelper.SendStringAsync("login", stream);
-            await NetworkHelper.SendStringAsync(username, stream);
-            await NetworkHelper.SendObjectAsync(user, stream);
-            
-            var authResult = await NetworkHelper.ReceiveObjectAsync<AuthResult>(stream);
-
-            if (authResult != null && authResult.IsAuthenticated)
-            {
-                Console.WriteLine("Login successful! You can now access the chat.");
-                return user;
-            }
-            else
-            {
-                Console.WriteLine($"Login failed: {authResult?.Message}");
-            }
-        }
-        else if (command == "help")
-        {
-            Console.WriteLine("Available commands:");
-            Console.WriteLine("register - Register a new account");
-            Console.WriteLine("login - Log in to your account");
-            Console.WriteLine("chat - Start chatting with other users");
-        }
-        else if (command == "chat")
-        {
-            Console.WriteLine("Use the new UI flow. This command is deprecated.");
-            continue;
-        }
-        else
-        {
-            Console.WriteLine("Unknown command. Type 'help' for a list of commands.");
-        }
-    }
-}
 
 async Task HandleChatAsync(string address, int port, User user)
 {
